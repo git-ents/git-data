@@ -1,0 +1,16 @@
+# Development Guidelines
+
+## General
+
+- Act as an expert.
+- Be extremely concise in words and project contributions.
+- Prioritize clarity in communication and contributions.
+- Prioritize correctness and challenge assumptions when appropriate.
+- Prioritize pausing early to confirm the output matches expectations.
+- Never write unsolicited summary documents.
+
+## Git
+
+- When committing, use Conventional Commit style with paragraph styling for the commit message body; use `assisted-by: $Tool ($Model)` as the final commit message footer.
+  - For example, using Zed's Claude Sonnet 4.6 model should produce: `assisted-by: Zed (Claude Sonnet 4.6)`.
+- Never push commits, or merge commits, unless otherwise told to; fetching is okay, unless told otherwise.
