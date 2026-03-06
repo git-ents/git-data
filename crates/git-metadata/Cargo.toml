@@ -1,0 +1,13 @@
+[package]
+name = "git-metadata"
+version = "0.0.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+git2.workspace = true
+
+[[bin]]
+name = "git-metadata"
+path = "src/main.rs"
