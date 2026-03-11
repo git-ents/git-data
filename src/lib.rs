@@ -3,8 +3,8 @@ use git2::{Error, ErrorCode, Oid, Repository};
 /// Options that control mutating metadata operations.
 #[derive(Debug, Clone)]
 pub struct MetadataOptions {
-    /// Fanout depth (number of hex-char sharding levels).
-    /// 2 means `ab/cdef...` (like git-notes), 4 means `ab/cd/ef01...`.
+    /// Fanout depth (number of 2-hex-char directory segments).
+    /// 1 means `ab/cdef01...` (like git-notes), 2 means `ab/cd/ef01...`.
     pub shard_level: u8,
     /// Overwrite an existing entry without error.
     pub force: bool,
@@ -13,7 +13,7 @@ pub struct MetadataOptions {
 impl Default for MetadataOptions {
     fn default() -> Self {
         Self {
-            shard_level: 2,
+            shard_level: 1,
             force: false,
         }
     }
@@ -43,13 +43,9 @@ pub trait MetadataIndex {
     ) -> Result<Oid, Error>;
 
     /// Remove the metadata entry for `target`.
+    /// The fanout depth is auto-detected from the tree structure.
     /// Returns `Ok(true)` if removed, `Ok(false)` if no entry existed.
-    fn metadata_remove(
-        &self,
-        ref_name: &str,
-        target: &Oid,
-        opts: &MetadataOptions,
-    ) -> Result<bool, Error>;
+    fn metadata_remove(&self, ref_name: &str, target: &Oid) -> Result<bool, Error>;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +103,11 @@ fn walk_tree<'a>(
     Ok(Some(current))
 }
 
+/// Returns `true` if `name` is a 2-char hex string (fanout directory name).
+fn is_fanout_segment(name: &str) -> bool {
+    name.len() == 2 && name.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 /// Recursively collect all `(target_oid, tree_oid)` entries from a fanout tree.
 fn collect_entries(
     repo: &Repository,
@@ -116,26 +117,51 @@ fn collect_entries(
     let mut results = Vec::new();
     for entry in tree.iter() {
         let name = entry.name().unwrap_or("");
+        if entry.kind() != Some(git2::ObjectType::Tree) {
+            continue;
+        }
         let full = format!("{prefix}{name}");
-        match entry.kind() {
-            Some(git2::ObjectType::Tree) => {
-                if full.len() < 40 {
-                    // Intermediate fanout directory — recurse.
-                    let subtree = repo.find_tree(entry.id())?;
-                    results.extend(collect_entries(repo, &subtree, &full)?);
-                } else {
-                    // Leaf: full is the complete hex OID, entry is the metadata tree.
-                    if let Ok(oid) = Oid::from_str(&full) {
-                        results.push((oid, entry.id()));
-                    }
-                }
-            }
-            _ => {
-                // Ignore non-tree entries (shouldn't exist, but be tolerant).
+        if is_fanout_segment(name) {
+            // Intermediate fanout directory — recurse.
+            let subtree = repo.find_tree(entry.id())?;
+            // PERF: we're allocating recursively here
+            // TODO: change return type
+            results.extend(collect_entries(repo, &subtree, &full)?);
+        } else if let Ok(oid) = Oid::from_str(&full) {
+            // Verify round-trip to guard against zero-padded short parses.
+            if oid.to_string() == full {
+                results.push((oid, entry.id()));
             }
         }
     }
     Ok(results)
+}
+
+/// Detect the fanout path for `target` in `root` by probing all possible depths.
+/// Returns `Some((segments, leaf, entry_oid))` if found, `None` otherwise.
+fn detect_fanout(
+    repo: &Repository,
+    root: &git2::Tree<'_>,
+    target: &Oid,
+) -> Result<Option<(Vec<String>, String, Oid)>, Error> {
+    let hex = target.to_string();
+    let max_depth = hex.len() / 2;
+    for depth in 0..max_depth {
+        let prefix_len = depth * 2;
+        let segments: Vec<String> = (0..depth)
+            .map(|i| hex[i * 2..i * 2 + 2].to_string())
+            .collect();
+        let leaf = &hex[prefix_len..];
+
+        if let Some(subtree) = walk_tree(repo, root, &segments)? {
+            if let Some(entry) = subtree.get_name(leaf) {
+                if entry.kind() == Some(git2::ObjectType::Tree) {
+                    return Ok(Some((segments, leaf.to_string(), entry.id())));
+                }
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// Build the nested fanout tree for an upsert, returning the new root tree OID.
@@ -296,29 +322,7 @@ impl MetadataIndex for Repository {
             Some(t) => t,
             None => return Ok(None),
         };
-
-        // We don't know the shard level used, so we probe: try interpreting the
-        // fanout at every possible depth (0..20). The first match wins.
-        let hex = target.to_string();
-        for depth in 0..20u8 {
-            let prefix_len = (depth as usize) * 2;
-            if prefix_len >= hex.len() {
-                break;
-            }
-            let segments: Vec<String> = (0..depth as usize)
-                .map(|i| hex[i * 2..i * 2 + 2].to_string())
-                .collect();
-            let leaf = &hex[prefix_len..];
-
-            if let Some(subtree) = walk_tree(self, &root, &segments)? {
-                if let Some(entry) = subtree.get_name(leaf) {
-                    if entry.kind() == Some(git2::ObjectType::Tree) {
-                        return Ok(Some(entry.id()));
-                    }
-                }
-            }
-        }
-        Ok(None)
+        Ok(detect_fanout(self, &root, target)?.map(|(_, _, oid)| oid))
     }
 
     fn metadata_set(
@@ -338,12 +342,10 @@ impl MetadataIndex for Repository {
         // Check for existing entry when force is false.
         if !opts.force {
             if let Some(ref root) = existing_root {
-                if let Some(subtree) = walk_tree(self, root, &segments)? {
-                    if subtree.get_name(&leaf).is_some() {
-                        return Err(Error::from_str(
-                            "metadata entry already exists (use force to overwrite)",
-                        ));
-                    }
+                if detect_fanout(self, root, target)?.is_some() {
+                    return Err(Error::from_str(
+                        "metadata entry already exists (use force to overwrite)",
+                    ));
                 }
             }
         }
@@ -356,18 +358,16 @@ impl MetadataIndex for Repository {
         Ok(new_root)
     }
 
-    fn metadata_remove(
-        &self,
-        ref_name: &str,
-        target: &Oid,
-        opts: &MetadataOptions,
-    ) -> Result<bool, Error> {
+    fn metadata_remove(&self, ref_name: &str, target: &Oid) -> Result<bool, Error> {
         let root = match resolve_root_tree(self, ref_name)? {
             Some(t) => t,
             None => return Ok(false),
         };
 
-        let (segments, leaf) = shard_oid(target, opts.shard_level);
+        let (segments, leaf) = match detect_fanout(self, &root, target)? {
+            Some((segments, leaf, _)) => (segments, leaf),
+            None => return Ok(false),
+        };
 
         match build_fanout_remove(self, &root, &segments, &leaf)? {
             RemoveResult::NotFound => Ok(false),

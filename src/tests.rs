@@ -95,14 +95,16 @@ fn remove_existing() {
     let (_dir, repo) = init_repo();
     let target = make_target(&repo);
     let tree_oid = make_tree(&repo);
-    let opts = MetadataOptions::default();
 
-    repo.metadata_set("refs/metadata/test", &target, &tree_oid, &opts)
-        .unwrap();
+    repo.metadata_set(
+        "refs/metadata/test",
+        &target,
+        &tree_oid,
+        &MetadataOptions::default(),
+    )
+    .unwrap();
 
-    let removed = repo
-        .metadata_remove("refs/metadata/test", &target, &opts)
-        .unwrap();
+    let removed = repo.metadata_remove("refs/metadata/test", &target).unwrap();
     assert!(removed);
 
     let got = repo.metadata_get("refs/metadata/test", &target).unwrap();
@@ -113,11 +115,8 @@ fn remove_existing() {
 fn remove_nonexistent() {
     let (_dir, repo) = init_repo();
     let target = make_target(&repo);
-    let opts = MetadataOptions::default();
 
-    let removed = repo
-        .metadata_remove("refs/metadata/test", &target, &opts)
-        .unwrap();
+    let removed = repo.metadata_remove("refs/metadata/test", &target).unwrap();
     assert!(!removed);
 }
 
@@ -144,4 +143,53 @@ fn list_entries() {
     assert_eq!(entries.len(), 2);
     assert!(entries.contains(&(t1, tree1)));
     assert!(entries.contains(&(t2, tree2)));
+}
+
+#[test]
+fn cross_shard_level_get_and_remove() {
+    let (_dir, repo) = init_repo();
+    let target = make_target(&repo);
+    let tree_oid = make_tree(&repo);
+
+    // Write with shard_level=3.
+    let opts = MetadataOptions {
+        shard_level: 3,
+        force: false,
+    };
+    repo.metadata_set("refs/metadata/test", &target, &tree_oid, &opts)
+        .unwrap();
+
+    // Read auto-detects the fanout depth.
+    let got = repo.metadata_get("refs/metadata/test", &target).unwrap();
+    assert_eq!(got, Some(tree_oid));
+
+    // Remove auto-detects the fanout depth.
+    let removed = repo.metadata_remove("refs/metadata/test", &target).unwrap();
+    assert!(removed);
+
+    let got = repo.metadata_get("refs/metadata/test", &target).unwrap();
+    assert_eq!(got, None);
+}
+
+#[test]
+fn force_detects_across_shard_levels() {
+    let (_dir, repo) = init_repo();
+    let target = make_target(&repo);
+    let tree_oid = make_tree(&repo);
+
+    // Write with shard_level=2.
+    let opts2 = MetadataOptions {
+        shard_level: 2,
+        force: false,
+    };
+    repo.metadata_set("refs/metadata/test", &target, &tree_oid, &opts2)
+        .unwrap();
+
+    // Try to write again with shard_level=1 (different depth) — should detect duplicate.
+    let opts1 = MetadataOptions {
+        shard_level: 1,
+        force: false,
+    };
+    let result = repo.metadata_set("refs/metadata/test", &target, &tree_oid, &opts1);
+    assert!(result.is_err());
 }
