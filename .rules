@@ -9,8 +9,21 @@
 - Prioritize pausing early to confirm the output matches expectations.
 - Never write unsolicited summary documents.
 
+> [!IMPORTANT]
+>
+> - When you're done with a request, ask yourself what could be improved, and report anything important.
+> - When you're done with a request, ask yourself if you learned anything new; add content to `.rules` as appropriate.
+> - When in doubt, ask questions.
+
+
 ## Git
 
-- When committing, use Conventional Commit style with paragraph styling for the commit message body; use `assisted-by: $Tool ($Model)` as the final commit message footer.
-  - For example, using Zed's Claude Sonnet 4.6 model should produce: `assisted-by: Zed (Claude Sonnet 4.6)`.
-- Never push commits, or merge commits, unless otherwise told to; fetching is okay, unless told otherwise.
+- When appropriate, always commit; never push unless asked to directly.
+- When committing, use Conventional Commit style with paragraph styling for the commit message body; use `Assisted-by: $Tool ($Company $Model)` as the final commit message footer where Company can be empty if it's the same as tool.
+  - For example, using Zed's Claude Sonnet 4.6 model should produce: `Assisted-by: Zed (Claude Sonnet 4.6)`.
+- Prioritize multiple commits when warranted.
+- The project uses conventional commits to track changes, so summarize all changes as either commit headers or footers using Conventional Commit syntax; every change that should be tracked in a changelog should be either a commit header or footer, even if that duplicates information in a commit message.
+- The only commit scopes that should be used are those listed in `.config/committed.toml`; this project does not use scopes for code contributions that are user-facing.
+- Expect `prek` (not `pre-commit`) to have installed git hooks; if no hooks run on commit, try running the install command: `prek install -c .config/pre-commit.yaml`.
+- You may make commits; use `fixup!` and `wip:` as appropriate, but do not `fixup!` commits that are already pushed to a remote.
+- Never `git push` without verifying that the operation is okay.
