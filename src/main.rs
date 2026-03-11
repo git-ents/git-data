@@ -1,9 +1,14 @@
 mod cli;
+mod exe;
 
-use clap::CommandFactory;
-use cli::Cli;
+use clap::{CommandFactory, Parser};
+use cli::{Cli, Command};
+use git_metadata::{MetadataIndex, MetadataOptions};
+use git2::Oid;
 use std::path::PathBuf;
 use std::process;
+
+use crate::exe::open_repo;
 
 fn main() {
     if let Some(dir) = parse_generate_man_flag() {
@@ -13,6 +18,74 @@ fn main() {
         }
         return;
     }
+
+    let cli = Cli::parse();
+
+    if let Err(e) = run(&cli) {
+        eprintln!("Error: {}", e);
+        process::exit(1);
+    }
+}
+
+fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = open_repo(cli.repo.as_deref())?;
+    let ref_name = &cli.ref_name;
+
+    match &cli.command {
+        Command::List => {
+            let entries = exe::list(&repo, ref_name)?;
+            if entries.is_empty() {
+                println!("No entries in {}.", ref_name);
+            } else {
+                for (target, tree) in &entries {
+                    println!("{} {}", target, tree);
+                }
+            }
+        }
+
+        Command::Get { target } => {
+            let target_oid = parse_oid(target)?;
+            match exe::get(&repo, ref_name, &target_oid)? {
+                Some(tree_oid) => println!("{}", tree_oid),
+                None => {
+                    eprintln!("No metadata entry for {}.", target);
+                    process::exit(1);
+                }
+            }
+        }
+
+        Command::Set {
+            target,
+            tree,
+            force,
+            shard_level,
+        } => {
+            let target_oid = parse_oid(target)?;
+            let tree_oid = parse_oid(tree)?;
+            let opts = MetadataOptions {
+                shard_level: *shard_level,
+                force: *force,
+            };
+            let root = exe::set(&repo, ref_name, &target_oid, &tree_oid, &opts)?;
+            eprintln!("Set {} -> {} (root tree {}).", target, tree, root);
+        }
+
+        Command::Remove { target } => {
+            let target_oid = parse_oid(target)?;
+            if exe::remove(&repo, ref_name, &target_oid)? {
+                eprintln!("Removed metadata entry for {}.", target);
+            } else {
+                eprintln!("No metadata entry for {}.", target);
+                process::exit(1);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn parse_oid(s: &str) -> Result<Oid, Box<dyn std::error::Error>> {
+    Oid::from_str(s).map_err(|e| format!("invalid OID '{}': {}", s, e).into())
 }
 
 /// Check for `--generate-man <DIR>` before clap parses, so it doesn't
