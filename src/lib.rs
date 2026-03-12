@@ -1,4 +1,5 @@
 use git2::{Error, ErrorCode, Oid, Repository};
+use git_filter_tree::FilterTree as _;
 
 /// Options that control mutating metadata operations.
 #[derive(Debug, Clone)]
@@ -510,72 +511,6 @@ fn glob_match_recursive(pattern: &[&str], path: &[&str]) -> bool {
     }
 }
 
-/// Remove entries matching patterns from a tree. Returns `None` if tree becomes empty.
-fn remove_matching_from_tree(
-    repo: &Repository,
-    tree: &git2::Tree<'_>,
-    patterns: &[&str],
-    keep: bool,
-    prefix: &str,
-) -> Result<Option<Oid>, Error> {
-    let mut builder = repo.treebuilder(None)?;
-    let mut any_change = false;
-
-    for entry in tree.iter() {
-        let name = entry.name().unwrap_or("");
-        let full_path = if prefix.is_empty() {
-            name.to_string()
-        } else {
-            format!("{prefix}/{name}")
-        };
-
-        let matched = patterns.iter().any(|p| glob_matches(p, &full_path));
-
-        if entry.kind() == Some(git2::ObjectType::Tree) {
-            // In remove mode, a matched directory means remove the whole subtree.
-            if !keep && matched {
-                any_change = true;
-                continue;
-            }
-
-            let subtree = repo.find_tree(entry.id())?;
-            let child_result =
-                remove_matching_from_tree(repo, &subtree, patterns, keep, &full_path)?;
-
-            if let Some(new_oid) = child_result {
-                if new_oid != entry.id() {
-                    any_change = true;
-                }
-                builder.insert(name, new_oid, 0o040000)?;
-            } else {
-                // Subtree became empty after filtering children.
-                any_change = true;
-            }
-        } else {
-            let should_remove = if keep { !matched } else { matched };
-
-            if should_remove {
-                any_change = true;
-            } else {
-                let filemode = entry.filemode_raw();
-                builder.insert(name, entry.id(), filemode)?;
-            }
-        }
-    }
-
-    if builder.len() == 0 {
-        if any_change {
-            Ok(None)
-        } else {
-            // Nothing changed, tree was already empty? Preserve original.
-            Ok(Some(tree.id()))
-        }
-    } else if any_change {
-        Ok(Some(builder.write()?))
-    } else {
-        Ok(Some(tree.id()))
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Implementation for git2::Repository
@@ -725,32 +660,36 @@ impl MetadataIndex for Repository {
         };
 
         let meta_tree = self.find_tree(meta_oid)?;
-        let new_meta = remove_matching_from_tree(self, &meta_tree, patterns, keep, "")?;
+        let patterns_owned: Vec<String> = patterns.iter().map(|s| s.to_string()).collect();
+        let new_meta_tree = self.filter_by_predicate(&meta_tree, |_repo, path| {
+            let path_str = path.to_str().unwrap_or("");
+            let matched = patterns_owned.iter().any(|p| glob_matches(p, path_str));
+            if keep { matched } else { !matched }
+        })?;
 
-        match new_meta {
-            None => {
-                // Metadata tree is now empty — remove the entire entry.
-                match build_fanout_remove(self, &root, &segments, &leaf)? {
-                    RemoveResult::NotFound => Ok(false),
-                    RemoveResult::Empty => {
-                        let mut reference = self.find_reference(ref_name)?;
-                        reference.delete()?;
-                        Ok(true)
-                    }
-                    RemoveResult::Removed(new_root) => {
-                        let msg = format!("metadata: remove paths from {}", target);
-                        commit_index(self, ref_name, new_root, &msg)?;
-                        Ok(true)
-                    }
+        if new_meta_tree.is_empty() {
+            // Metadata tree is now empty — remove the entire entry.
+            match build_fanout_remove(self, &root, &segments, &leaf)? {
+                RemoveResult::NotFound => Ok(false),
+                RemoveResult::Empty => {
+                    let mut reference = self.find_reference(ref_name)?;
+                    reference.delete()?;
+                    Ok(true)
+                }
+                RemoveResult::Removed(new_root) => {
+                    let msg = format!("metadata: remove paths from {}", target);
+                    commit_index(self, ref_name, new_root, &msg)?;
+                    Ok(true)
                 }
             }
-            Some(new_oid) if new_oid == meta_oid => Ok(false),
-            Some(new_oid) => {
-                let new_root = build_fanout(self, Some(&root), &segments, &leaf, &new_oid)?;
-                let msg = format!("metadata: remove paths from {}", target);
-                commit_index(self, ref_name, new_root, &msg)?;
-                Ok(true)
-            }
+        } else if new_meta_tree.id() == meta_oid {
+            Ok(false)
+        } else {
+            let new_root =
+                build_fanout(self, Some(&root), &segments, &leaf, &new_meta_tree.id())?;
+            let msg = format!("metadata: remove paths from {}", target);
+            commit_index(self, ref_name, new_root, &msg)?;
+            Ok(true)
         }
     }
 
