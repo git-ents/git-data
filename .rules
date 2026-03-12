@@ -19,7 +19,7 @@
 ## Git
 
 - When appropriate, always commit; never push unless asked to directly.
-- When committing, use Conventional Commit style with paragraph styling for the commit message body; use `Assisted-by: $Tool ($Company $Model)` as the final commit message footer where Company can be empty if it's the same as tool.
+- When committing, use Conventional Commit style with paragraph styling for the commit message body; use `Assisted-by: $Tool ($Model $Version)` as the final commit message footer where Company can be empty if it's the same as tool.
   - For example, using Zed's Claude Sonnet 4.6 model should produce: `Assisted-by: Zed (Claude Sonnet 4.6)`.
 - Prioritize multiple commits when warranted.
 - The project uses conventional commits to track changes, so summarize all changes as either commit headers or footers using Conventional Commit syntax; every change that should be tracked in a changelog should be either a commit header or footer, even if that duplicates information in a commit message.
