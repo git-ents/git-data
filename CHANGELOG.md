@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0](https://github.com/git-ents/git-metadata/compare/git-metadata-v0.1.0...git-metadata-v0.2.0) (2026-03-12)
+
+
+### Features
+
+* Add MetadataIndex::metadata ([fd7b179](https://github.com/git-ents/git-metadata/commit/fd7b1793465cfb167187c8d558dc61a35a3e1a28))
+* Add MetadataIndex::metadata_commit ([fd7b179](https://github.com/git-ents/git-metadata/commit/fd7b1793465cfb167187c8d558dc61a35a3e1a28))
+
 ## 0.1.0 (2026-03-11)
 
 
