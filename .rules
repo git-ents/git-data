@@ -1,18 +1,23 @@
 # Project Rules
 
 ## Behavior
-- Be concise. No filler, no restating the task, no summaries of what you just did.
-- Do not explain code unless asked. Just write it.
-- Do not narrate your diffs or describe what you changed. I can read the diff.
+
+- Be concise.
+  No filler, no restating the task, no summaries of what you just did.
+- Do not explain code unless asked.
+  Just write it.
+- Do not narrate your diffs or describe what you changed.
+  I can read the diff.
 - Ask before making changes outside the scope of what was requested.
 - Never refactor surrounding code unless explicitly asked.
-- If you hit an error, stop and report it. Do not loop trying fixes without asking.
-- Prefer minimal, targeted diffs. Do not rewrite entire files when a small edit suffices.
+- If you hit an error, stop and report it.
+  Do not loop trying fixes without asking.
+- Prefer minimal, targeted diffs.
+  Do not rewrite entire files when a small edit suffices.
 - If a task will touch more than 3 files, state your plan in one sentence and wait for confirmation before proceeding.
 - Do not add dependencies without asking.
 
 ## Code Style
-
 
 - Match existing patterns in the codebase; do not introduce new conventions.
 - Keep imports organized per existing project convention.
