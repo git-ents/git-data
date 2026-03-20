@@ -2,10 +2,6 @@
 
 *Porcelain for adding metadata to any object without rewriting history.*
 
-<!-- rumdl-disable MD013 -->
-[![CI](https://github.com/git-ents/git-data/actions/workflows/CI.yml/badge.svg)](https://github.com/git-ents/git-data/actions/workflows/CI.yml) [![CD](https://github.com/git-ents/git-data/actions/workflows/CD.yml/badge.svg)](https://github.com/git-ents/git-data/actions/workflows/CD.yml)
-<!-- rumdl-enable MD013 -->
-
 > [!CAUTION]
 > This project is in active development.
 > There are surely bugs and misbehaviors that have not yet been discovered.
