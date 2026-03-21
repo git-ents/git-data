@@ -1,0 +1,22 @@
+[package]
+name = "git-chain"
+version = "0.1.0"
+edition = "2024"
+publish = true
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+description = "Append-only event chains stored as Git commit history."
+repository = "https://github.com/git-ents/git-data"
+homepage = "https://github.com/git-ents/git-data"
+documentation = "https://docs.rs/git-chain"
+
+[[bin]]
+name = "git-chain"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5.60", features = ["derive"] }
+git2 = "0.20.4"
+
+[dev-dependencies]
+tempfile = "3"
