@@ -646,3 +646,109 @@ fn glob_no_false_positives() {
     assert!(!glob_matches("review", "labels/bug"));
     assert!(!glob_matches("review/*", "labels/bug"));
 }
+
+// ---- Relation (link/unlink/linked/is_linked) ----
+
+#[test]
+fn link_creates_bidirectional() {
+    let (_dir, repo) = init_repo();
+    repo.link(REF, "issue:1", "commit:abc", "fixes", "fixed-by", None)
+        .unwrap();
+
+    assert!(
+        repo.is_linked(REF, "issue:1", "commit:abc", "fixes")
+            .unwrap()
+    );
+    assert!(
+        repo.is_linked(REF, "commit:abc", "issue:1", "fixed-by")
+            .unwrap()
+    );
+}
+
+#[test]
+fn link_with_metadata() {
+    let (_dir, repo) = init_repo();
+    repo.link(
+        REF,
+        "issue:1",
+        "commit:abc",
+        "fixes",
+        "fixed-by",
+        Some(b"meta"),
+    )
+    .unwrap();
+
+    let links = repo.linked(REF, "issue:1", Some("fixes")).unwrap();
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0], ("fixes".to_string(), "commit:abc".to_string()));
+}
+
+#[test]
+fn unlink_removes_both_directions() {
+    let (_dir, repo) = init_repo();
+    repo.link(REF, "issue:1", "commit:abc", "fixes", "fixed-by", None)
+        .unwrap();
+    repo.unlink(REF, "issue:1", "commit:abc", "fixes", "fixed-by")
+        .unwrap();
+
+    assert!(
+        !repo
+            .is_linked(REF, "issue:1", "commit:abc", "fixes")
+            .unwrap()
+    );
+    assert!(
+        !repo
+            .is_linked(REF, "commit:abc", "issue:1", "fixed-by")
+            .unwrap()
+    );
+}
+
+#[test]
+fn linked_returns_all_relations() {
+    let (_dir, repo) = init_repo();
+    repo.link(REF, "issue:1", "commit:abc", "fixes", "fixed-by", None)
+        .unwrap();
+    repo.link(REF, "issue:1", "commit:def", "fixes", "fixed-by", None)
+        .unwrap();
+    repo.link(REF, "issue:1", "pr:10", "closes", "closed-by", None)
+        .unwrap();
+
+    let all = repo.linked(REF, "issue:1", None).unwrap();
+    assert_eq!(all.len(), 3);
+
+    let fixes: Vec<_> = all.iter().filter(|(r, _)| r == "fixes").collect();
+    assert_eq!(fixes.len(), 2);
+
+    let closes: Vec<_> = all.iter().filter(|(r, _)| r == "closes").collect();
+    assert_eq!(closes.len(), 1);
+}
+
+#[test]
+fn linked_filters_by_relation() {
+    let (_dir, repo) = init_repo();
+    repo.link(REF, "issue:1", "commit:abc", "fixes", "fixed-by", None)
+        .unwrap();
+    repo.link(REF, "issue:1", "pr:10", "closes", "closed-by", None)
+        .unwrap();
+
+    let fixes = repo.linked(REF, "issue:1", Some("fixes")).unwrap();
+    assert_eq!(fixes.len(), 1);
+    assert_eq!(fixes[0].1, "commit:abc");
+}
+
+#[test]
+fn is_linked_returns_false_for_missing() {
+    let (_dir, repo) = init_repo();
+    assert!(
+        !repo
+            .is_linked(REF, "issue:1", "commit:abc", "fixes")
+            .unwrap()
+    );
+}
+
+#[test]
+fn linked_empty_ref_returns_empty() {
+    let (_dir, repo) = init_repo();
+    let result = repo.linked(REF, "issue:1", None).unwrap();
+    assert!(result.is_empty());
+}

@@ -138,6 +138,45 @@ pub trait MetadataIndex {
 
     /// Return the resolved ref name (identity for now, but allows future indirection).
     fn metadata_get_ref(&self, ref_name: &str) -> String;
+
+    /// Create a bidirectional link between two keys.
+    ///
+    /// Writes `<a>/<forward>/<b>` and `<b>/<reverse>/<a>` in one commit.
+    /// `meta` is optional blob content stored at each link entry.
+    fn link(
+        &self,
+        ref_name: &str,
+        a: &str,
+        b: &str,
+        forward: &str,
+        reverse: &str,
+        meta: Option<&[u8]>,
+    ) -> Result<Oid, Error>;
+
+    /// Remove a bidirectional link between two keys.
+    ///
+    /// Removes `<a>/<forward>/<b>` and `<b>/<reverse>/<a>` in one commit.
+    fn unlink(
+        &self,
+        ref_name: &str,
+        a: &str,
+        b: &str,
+        forward: &str,
+        reverse: &str,
+    ) -> Result<Oid, Error>;
+
+    /// List all links for a key, optionally filtered by relation name.
+    ///
+    /// Returns `(relation, target)` pairs.
+    fn linked(
+        &self,
+        ref_name: &str,
+        key: &str,
+        relation: Option<&str>,
+    ) -> Result<Vec<(String, String)>, Error>;
+
+    /// Check whether a specific link exists.
+    fn is_linked(&self, ref_name: &str, a: &str, b: &str, forward: &str) -> Result<bool, Error>;
 }
 
 // ---------------------------------------------------------------------------
@@ -456,6 +495,65 @@ fn insert_path_recursive(
     let mut builder = repo.treebuilder(existing)?;
     builder.insert(name, child_oid, 0o040000)?;
     builder.write()
+}
+
+/// Remove a `/`-separated path from a tree, cleaning up empty parent directories.
+/// Returns `None` if the tree becomes empty.
+fn remove_path_from_tree(
+    repo: &Repository,
+    tree: &git2::Tree<'_>,
+    path: &str,
+) -> Result<Option<Oid>, Error> {
+    let components: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    if components.is_empty() {
+        return Err(Error::from_str("empty path"));
+    }
+    remove_path_recursive(repo, tree, &components)
+}
+
+fn remove_path_recursive(
+    repo: &Repository,
+    tree: &git2::Tree<'_>,
+    components: &[&str],
+) -> Result<Option<Oid>, Error> {
+    assert!(!components.is_empty());
+    let name = components[0];
+
+    if components.len() == 1 {
+        // Leaf: remove the entry.
+        let mut builder = repo.treebuilder(Some(tree))?;
+        if builder.get(name)?.is_none() {
+            return Err(Error::from_str("path not found"));
+        }
+        builder.remove(name)?;
+        if builder.len() == 0 {
+            Ok(None)
+        } else {
+            Ok(Some(builder.write()?))
+        }
+    } else {
+        // Intermediate: recurse into subtree.
+        let entry = tree
+            .get_name(name)
+            .ok_or_else(|| Error::from_str("path not found"))?;
+        let subtree = repo.find_tree(entry.id())?;
+        let child_oid = remove_path_recursive(repo, &subtree, &components[1..])?;
+
+        let mut builder = repo.treebuilder(Some(tree))?;
+        match child_oid {
+            Some(oid) => {
+                builder.insert(name, oid, 0o040000)?;
+            }
+            None => {
+                builder.remove(name)?;
+            }
+        }
+        if builder.len() == 0 {
+            Ok(None)
+        } else {
+            Ok(Some(builder.write()?))
+        }
+    }
 }
 
 /// Check if a path exists in a tree.
@@ -810,6 +908,128 @@ impl MetadataIndex for Repository {
 
     fn metadata_get_ref(&self, ref_name: &str) -> String {
         ref_name.to_string()
+    }
+
+    fn link(
+        &self,
+        ref_name: &str,
+        a: &str,
+        b: &str,
+        forward: &str,
+        reverse: &str,
+        meta: Option<&[u8]>,
+    ) -> Result<Oid, Error> {
+        let blob_oid = self.blob(meta.unwrap_or(b""))?;
+        let existing_root = resolve_root_tree(self, ref_name)?;
+
+        // Insert a/<forward>/<b>
+        let forward_path = format!("{}/{}/{}", a, forward, b);
+        let tree1 = insert_path_into_tree(self, existing_root.as_ref(), &forward_path, blob_oid)?;
+
+        // Insert b/<reverse>/<a> into the same tree
+        let reverse_path = format!("{}/{}/{}", b, reverse, a);
+        let tree1_obj = self.find_tree(tree1)?;
+        let tree2 = insert_path_into_tree(self, Some(&tree1_obj), &reverse_path, blob_oid)?;
+
+        let msg = format!("link: {} -[{}]-> {}", a, forward, b);
+        commit_index(self, ref_name, tree2, &msg)?;
+        Ok(tree2)
+    }
+
+    fn unlink(
+        &self,
+        ref_name: &str,
+        a: &str,
+        b: &str,
+        forward: &str,
+        reverse: &str,
+    ) -> Result<Oid, Error> {
+        let root =
+            resolve_root_tree(self, ref_name)?.ok_or_else(|| Error::from_str("ref not found"))?;
+
+        // Remove a/<forward>/<b>
+        let forward_path = format!("{}/{}/{}", a, forward, b);
+        let tree1 = remove_path_from_tree(self, &root, &forward_path)?
+            .ok_or_else(|| Error::from_str("tree became empty after unlink"))?;
+
+        // Remove b/<reverse>/<a>
+        let tree1_obj = self.find_tree(tree1)?;
+        let reverse_path = format!("{}/{}/{}", b, reverse, a);
+        let tree2_opt = remove_path_from_tree(self, &tree1_obj, &reverse_path)?;
+
+        match tree2_opt {
+            Some(tree2) => {
+                let msg = format!("unlink: {} -[{}]-> {}", a, forward, b);
+                commit_index(self, ref_name, tree2, &msg)?;
+                Ok(tree2)
+            }
+            None => {
+                // Tree is empty — delete the ref
+                let mut reference = self.find_reference(ref_name)?;
+                reference.delete()?;
+                let empty = self.treebuilder(None)?.write()?;
+                Ok(empty)
+            }
+        }
+    }
+
+    fn linked(
+        &self,
+        ref_name: &str,
+        key: &str,
+        relation: Option<&str>,
+    ) -> Result<Vec<(String, String)>, Error> {
+        let root = match resolve_root_tree(self, ref_name)? {
+            Some(t) => t,
+            None => return Ok(Vec::new()),
+        };
+
+        // Find the key's subtree
+        let key_entry = match root.get_name(key) {
+            Some(e) => e,
+            None => return Ok(Vec::new()),
+        };
+        let key_tree = self.find_tree(key_entry.id())?;
+
+        let mut results = Vec::new();
+
+        if let Some(rel) = relation {
+            // Only look at one relation
+            if let Some(rel_entry) = key_tree.get_name(rel) {
+                if rel_entry.kind() == Some(git2::ObjectType::Tree) {
+                    let rel_tree = self.find_tree(rel_entry.id())?;
+                    for target_entry in rel_tree.iter() {
+                        if let Some(name) = target_entry.name() {
+                            results.push((rel.to_string(), name.to_string()));
+                        }
+                    }
+                }
+            }
+        } else {
+            // All relations
+            for rel_entry in key_tree.iter() {
+                if rel_entry.kind() == Some(git2::ObjectType::Tree) {
+                    let rel_name = rel_entry.name().unwrap_or("").to_string();
+                    let rel_tree = self.find_tree(rel_entry.id())?;
+                    for target_entry in rel_tree.iter() {
+                        if let Some(name) = target_entry.name() {
+                            results.push((rel_name.clone(), name.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
+    fn is_linked(&self, ref_name: &str, a: &str, b: &str, forward: &str) -> Result<bool, Error> {
+        let root = match resolve_root_tree(self, ref_name)? {
+            Some(t) => t,
+            None => return Ok(false),
+        };
+        let path = format!("{}/{}/{}", a, forward, b);
+        Ok(path_exists_in_tree(self, &root, &path))
     }
 }
 

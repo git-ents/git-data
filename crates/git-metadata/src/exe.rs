@@ -81,3 +81,38 @@ pub fn prune(repo: &Repository, ref_name: &str, dry_run: bool) -> Result<Vec<Oid
 pub fn get_ref(repo: &Repository, ref_name: &str) -> String {
     repo.metadata_get_ref(ref_name)
 }
+
+/// Create a bidirectional link between two keys.
+pub fn link(
+    repo: &Repository,
+    ref_name: &str,
+    a: &str,
+    b: &str,
+    forward: &str,
+    reverse: &str,
+    meta: Option<&[u8]>,
+) -> Result<Oid, git2::Error> {
+    repo.link(ref_name, a, b, forward, reverse, meta)
+}
+
+/// Remove a bidirectional link between two keys.
+pub fn unlink(
+    repo: &Repository,
+    ref_name: &str,
+    a: &str,
+    b: &str,
+    forward: &str,
+    reverse: &str,
+) -> Result<Oid, git2::Error> {
+    repo.unlink(ref_name, a, b, forward, reverse)
+}
+
+/// List all links for a key, optionally filtered by relation name.
+pub fn linked(
+    repo: &Repository,
+    ref_name: &str,
+    key: &str,
+    relation: Option<&str>,
+) -> Result<Vec<(String, String)>, git2::Error> {
+    repo.linked(ref_name, key, relation)
+}

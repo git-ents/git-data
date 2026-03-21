@@ -163,6 +163,38 @@ fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         Command::GetRef => {
             println!("{}", exe::get_ref(&repo, ref_name));
         }
+
+        Command::Link {
+            a,
+            b,
+            forward,
+            reverse,
+        } => {
+            let tree_oid = exe::link(&repo, ref_name, a, b, forward, reverse, None)?;
+            eprintln!("Linked {} -[{}]-> {} (tree {}).", a, forward, b, tree_oid);
+        }
+
+        Command::Unlink {
+            a,
+            b,
+            forward,
+            reverse,
+        } => {
+            let tree_oid = exe::unlink(&repo, ref_name, a, b, forward, reverse)?;
+            let _ = tree_oid;
+            eprintln!("Unlinked {} -[{}]-> {}.", a, forward, b);
+        }
+
+        Command::Linked { key, relation } => {
+            let entries = exe::linked(&repo, ref_name, key, relation.as_deref())?;
+            if entries.is_empty() {
+                eprintln!("No links for {}.", key);
+            } else {
+                for (rel, target) in &entries {
+                    println!("{}\t{}", rel, target);
+                }
+            }
+        }
     }
 
     Ok(())
