@@ -206,6 +206,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "git-chain"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "git2",
+ "tempfile",
+]
+
+[[package]]
 name = "git-filter-tree"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -215,6 +224,15 @@ dependencies = [
  "clap_mangen",
  "git2",
  "globset",
+]
+
+[[package]]
+name = "git-ledger"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "git2",
+ "tempfile",
 ]
 
 [[package]]
