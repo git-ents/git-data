@@ -73,4 +73,11 @@ pub enum Command {
         /// The ref prefix (e.g. `refs/issues`).
         ref_prefix: String,
     },
+
+    /// Show the commit history for a record.
+    Log {
+        /// The full ref name (e.g. `refs/issues/1`).
+        #[arg(name = "ref")]
+        ref_name: String,
+    },
 }
