@@ -69,31 +69,73 @@ pub trait Ledger {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Recursively insert a blob at an arbitrary depth inside a tree builder.
+fn insert_nested(
+    repo: &Repository,
+    builder: &mut git2::TreeBuilder<'_>,
+    components: &[&str],
+    blob_oid: Oid,
+) -> Result<(), Error> {
+    match components {
+        [leaf] => {
+            builder.insert(leaf, blob_oid, 0o100644)?;
+        }
+        [head, rest @ ..] => {
+            let mut sub_builder = if let Some(existing) = builder.get(head)? {
+                let existing_tree = repo.find_tree(existing.id())?;
+                repo.treebuilder(Some(&existing_tree))?
+            } else {
+                repo.treebuilder(None)?
+            };
+            insert_nested(repo, &mut sub_builder, rest, blob_oid)?;
+            let sub_tree = sub_builder.write()?;
+            builder.insert(head, sub_tree, 0o040000)?;
+        }
+        [] => {}
+    }
+    Ok(())
+}
+
+/// Recursively remove a blob at an arbitrary depth inside a tree builder.
+/// Returns `true` if the subtree at this level is now empty and should be pruned.
+fn remove_nested(
+    repo: &Repository,
+    builder: &mut git2::TreeBuilder<'_>,
+    components: &[&str],
+) -> Result<bool, Error> {
+    match components {
+        [leaf] => {
+            let _ = builder.remove(leaf);
+        }
+        [head, rest @ ..] => {
+            let existing_tree_id = builder
+                .get(head)?
+                .filter(|e| e.kind() == Some(git2::ObjectType::Tree))
+                .map(|e| e.id());
+            if let Some(tree_id) = existing_tree_id {
+                let et = repo.find_tree(tree_id)?;
+                let mut sub_builder = repo.treebuilder(Some(&et))?;
+                let empty = remove_nested(repo, &mut sub_builder, rest)?;
+                if empty {
+                    let _ = builder.remove(head);
+                } else {
+                    let sub_tree = sub_builder.write()?;
+                    builder.insert(head, sub_tree, 0o040000)?;
+                }
+            }
+        }
+        [] => {}
+    }
+    Ok(builder.is_empty())
+}
+
 /// Build a tree from a list of field name/value pairs.
 fn build_fields_tree(repo: &Repository, fields: &[(&str, &[u8])]) -> Result<Oid, Error> {
     let mut builder = repo.treebuilder(None)?;
     for (name, value) in fields {
         let blob_oid = repo.blob(value)?;
-        // Support nested fields: if name contains '/', create subtrees
-        if name.contains('/') {
-            // For simplicity, handle single-level nesting
-            let parts: Vec<&str> = name.splitn(2, '/').collect();
-            let sub_blob = repo.blob(value)?;
-            // Build or update subtree
-            let sub_tree = if let Some(existing) = builder.get(parts[0])? {
-                let existing_tree = repo.find_tree(existing.id())?;
-                let mut sub_builder = repo.treebuilder(Some(&existing_tree))?;
-                sub_builder.insert(parts[1], sub_blob, 0o100644)?;
-                sub_builder.write()?
-            } else {
-                let mut sub_builder = repo.treebuilder(None)?;
-                sub_builder.insert(parts[1], sub_blob, 0o100644)?;
-                sub_builder.write()?
-            };
-            builder.insert(parts[0], sub_tree, 0o040000)?;
-        } else {
-            builder.insert(name, blob_oid, 0o100644)?;
-        }
+        let components: Vec<&str> = name.split('/').collect();
+        insert_nested(repo, &mut builder, &components, blob_oid)?;
     }
     builder.write()
 }
@@ -255,47 +297,13 @@ impl Ledger for Repository {
         for mutation in mutations {
             match mutation {
                 Mutation::Set(name, value) => {
-                    if name.contains('/') {
-                        let parts: Vec<&str> = name.splitn(2, '/').collect();
-                        let sub_blob = self.blob(value)?;
-                        let sub_tree = if let Some(existing) = builder.get(parts[0])? {
-                            let et = self.find_tree(existing.id())?;
-                            let mut sub_builder = self.treebuilder(Some(&et))?;
-                            sub_builder.insert(parts[1], sub_blob, 0o100644)?;
-                            sub_builder.write()?
-                        } else {
-                            let mut sub_builder = self.treebuilder(None)?;
-                            sub_builder.insert(parts[1], sub_blob, 0o100644)?;
-                            sub_builder.write()?
-                        };
-                        builder.insert(parts[0], sub_tree, 0o040000)?;
-                    } else {
-                        let blob_oid = self.blob(value)?;
-                        builder.insert(name, blob_oid, 0o100644)?;
-                    }
+                    let blob_oid = self.blob(value)?;
+                    let components: Vec<&str> = name.split('/').collect();
+                    insert_nested(self, &mut builder, &components, blob_oid)?;
                 }
                 Mutation::Delete(name) => {
-                    if name.contains('/') {
-                        let parts: Vec<&str> = name.splitn(2, '/').collect();
-                        let existing_tree_id = builder
-                            .get(parts[0])?
-                            .filter(|e| e.kind() == Some(git2::ObjectType::Tree))
-                            .map(|e| e.id());
-                        if let Some(tree_id) = existing_tree_id {
-                            let et = self.find_tree(tree_id)?;
-                            let mut sub_builder = self.treebuilder(Some(&et))?;
-                            let _ = sub_builder.remove(parts[1]);
-                            if sub_builder.is_empty() {
-                                let _ = builder.remove(parts[0]);
-                            } else {
-                                let sub_tree = sub_builder.write()?;
-                                builder.insert(parts[0], sub_tree, 0o040000)?;
-                            }
-                        }
-                    } else {
-                        // Ignore error if the field doesn't exist
-                        let _ = builder.remove(name);
-                    }
+                    let components: Vec<&str> = name.split('/').collect();
+                    remove_nested(self, &mut builder, &components)?;
                 }
             }
         }
