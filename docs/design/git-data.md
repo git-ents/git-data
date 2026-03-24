@@ -18,7 +18,6 @@ These patterns recur in any system that uses Git as a data store.
 
 git-data provides them as independent, composable libraries.
 
-
 ## Primitives
 
 Three storage primitives, two constraints, one anti-primitive, one base layer.
@@ -46,7 +45,6 @@ Three storage primitives, two constraints, one anti-primitive, one base layer.
 - **Source** — blobs in the worktree, versioned on branches.
   Git itself.
   Policy, configuration, check definitions — anything read from a commit's tree.
-
 
 ## Crates
 
@@ -112,7 +110,6 @@ refs/<namespace>/<scope>/<id>
 
 Scopes are fully independent: no cross-scope contention on ID assignment or record writes.
 
-
 ### git-metadata
 
 Structured annotations and indexed lookups on a shared ref.
@@ -136,10 +133,10 @@ For short human-readable keys, single-level paths are sufficient.
 
 **Operations:**
 
-- `attach(key, path, content)` — write a blob at `<key>/<path>` in the metadata tree.
-- `read(key, path)` — read a single entry.
-- `read_all(key)` — list all entries for a key.
-- `remove(key, path)` — delete an entry.
+- `metadata_add(key, path, content)` — write a blob at `<key>/<path>` in the metadata tree.
+- `metadata_get(key, path)` — read a single entry.
+- `metadata_show(key)` — list all entries for a key.
+- `metadata_remove(key, path)` — delete an entry.
 
 Every write is a new commit on the metadata ref.
 The commit history is the audit log of all annotation changes.
@@ -200,26 +197,23 @@ The `namespace` is caller-provided.
 The library owns no ref namespace.
 A consumer passes `"refs/forge/links"` or `"refs/metadata/approvals"` — the library does not care.
 
-
 ### git-chain
 
 Append-only event streams stored as refs.
 
-A chain is a ref where each commit appends an event.
-Unlike a ledger, where commits replace state, chain commits add entries.
-The tree grows monotonically.
-Entries are never edited — corrections are new entries that reference prior ones.
+A chain is a ref where each commit represents an event.
+Each commit's tree holds only that entry's payload — there is no accumulated state across commits.
+The commit chain itself provides chronological ordering.
 
 **Ref structure:**
 
 ```text
 refs/<namespace>/<scope> → commit → tree
-  <entry-id>            # blob: event content
-  <entry-id>
-  <entry-id>
+  <payload-name>        # blob: event content
+  <payload-name>
 ```
 
-Entry IDs are timestamp-sortable to allow chronological reconstruction from the tree alone, without walking the commit chain.
+Each commit's tree contains the payload files for that single event.
 
 **Threading:**
 
@@ -248,7 +242,6 @@ Merge commits on chain refs create non-linear history.
 This is correct — the history is an event log, not a development narrative.
 DAG order with timestamps is sufficient for reconstruction.
 
-
 ## Attestation
 
 Any commit in any primitive can serve as an attestation.
@@ -265,7 +258,6 @@ A build output commit whose parents are its input commits encodes the build grap
 `git log` on the build graph shows the entire DAG.
 `git verify-commit` on any node proves who built it.
 
-
 ## Ephemeral
 
 Ephemeral data is declared in source but intentionally never persisted in Git.
@@ -281,7 +273,6 @@ This is correct — the ephemeral input enables a side effect (deployment, signi
 git-data does not implement ephemeral handling.
 It is documented here because it completes the theory: every piece of state in a Git-backed system is either source, a ledger entry, a metadata entry, a chain event, or ephemeral.
 There is no sixth category.
-
 
 ## Coverage
 
@@ -311,7 +302,6 @@ Every feature across known consumers maps to these primitives:
 | Secret declarations | source | — | — |
 | Secret values | ephemeral | — | — |
 
-
 ## Layering
 
 ```text
@@ -327,7 +317,6 @@ A consumer may use any combination.
 
 The shared machinery — ref → commit → tree reads and writes, tree merging, commit signing — is either inlined or extracted to a shared internal crate if duplication warrants it.
 This is a code organization decision, not an architectural one.
-
 
 ## What git-data Is Not
 
@@ -347,7 +336,6 @@ The consumer decides when and how to merge.
 git-data does not cache derived queries.
 Consumers maintain their own indexes.
 Correctness never depends on a derived index.
-
 
 ## Workspace Layout
 
@@ -369,11 +357,10 @@ git-data/
 Each crate publishes independently to crates.io.
 The workspace shares test infrastructure, CI, and release tooling.
 
-
 ## CLI
 
-git-metadata ships a CLI as `git-metadata` (invoked as `git metadata`).
-It is the only crate with a CLI at this time.
+All three crates ship CLIs:
 
-git-ledger and git-chain are library-only.
-They may gain CLIs if direct human use outside of a consumer tool proves valuable.
+- `git-metadata` (invoked as `git metadata`) — metadata annotation and relation operations.
+- `git-ledger` (invoked as `git ledger`) — record creation, reading, updating, and listing.
+- `git-chain` (invoked as `git chain`) — event appending and chain walking.

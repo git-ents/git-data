@@ -8,18 +8,26 @@ date = 2026-03-21
 
 ## Current State
 
-Only `git-metadata` (v0.2.1) exists.
-It implements OID-keyed metadata (list, get, add, remove, copy, prune) with CLI.
-Two crates are missing entirely.
-Relation operations are unimplemented.
+All three crates are implemented with CLIs and published in the workspace.
+
+- **git-metadata** (v0.2.1) — OID-keyed metadata (list, get, add, remove, copy, prune) with CLI.
+  Relation operations (link, unlink, linked, is_linked) are implemented.
+- **git-ledger** (v0.1.0) — Versioned records stored as refs with CLI (`git ledger`).
+  Supports create, read, update, list, and history operations.
+- **git-chain** (v0.1.0) — Append-only event chains stored as commit history with CLI (`git chain`).
+  Supports append and chain walking operations.
+
+Workspace wiring is complete: all three crates are members of the workspace `Cargo.toml`, `git2` and `tempfile` versions are shared via workspace dependencies, and CI covers all crates.
 
 ---
 
-## Phase 1 — git-metadata: Relation Operations
+## Completed Phases
 
-**Goal:** implement the `Relation` feature described in the design doc.
+### Phase 1 — git-metadata: Relation Operations ✓
 
-### Data model
+Relation operations are implemented in `git-metadata`.
+
+#### Data model
 
 Three-level tree under any metadata ref:
 
@@ -33,7 +41,7 @@ Three-level tree under any metadata ref:
 Keys use `:` as an internal delimiter (`issue:42`, `commit:abc123`).
 Git prohibits `:` in ref names but allows it in tree entry names.
 
-### New API surface (added to `MetadataIndex` trait)
+#### API surface (on `MetadataIndex` trait)
 
 ```rust
 fn link(
@@ -71,7 +79,7 @@ fn is_linked(
 ) -> Result<bool>;
 ```
 
-### Implementation notes
+#### Implementation notes
 
 - `link` and `unlink` write both directions in a single commit (one tree mutation, one `git2::Commit`).
   This is the atomicity guarantee.
@@ -81,7 +89,7 @@ fn is_linked(
 - Concurrency: two writers linking disjoint pairs touch disjoint tree paths; three-way merge resolves them.
   Conflict = same link written simultaneously → reject and retry (same pattern as existing metadata writes).
 
-### CLI additions to `git-metadata`
+#### CLI additions to `git-metadata`
 
 ```text
 git metadata link   <a> <b> --forward <label> --reverse <label> [--ref <ref>]
@@ -89,13 +97,11 @@ git metadata unlink <a> <b> --forward <label> --reverse <label> [--ref <ref>]
 git metadata linked <key>   [--relation <label>]                 [--ref <ref>]
 ```
 
----
-
-## Phase 2 — git-ledger (new crate)
+### Phase 2 — git-ledger ✓
 
 **Crate:** `crates/git-ledger/` **Type:** library + CLI (`git-ledger`, invoked as `git ledger`) **Version:** 0.1.0
 
-### Ref structure
+#### Ref structure
 
 ```text
 refs/<namespace>/<id> → commit → tree
@@ -107,7 +113,7 @@ refs/<namespace>/<id> → commit → tree
 Each record is its own ref.
 Two writers on different records never conflict.
 
-### Public API
+#### Public API
 
 ```rust
 pub trait Ledger {
@@ -151,32 +157,7 @@ pub struct LedgerEntry {
 }
 ```
 
-### Implementation notes
-
-**Sequential naming:**
-
-- `list(ref_prefix)` performs a prefix scan via `Repository::references_glob`.
-- Parse IDs as `u64`; max + 1 is the candidate.
-- `create` writes the new ref; if another writer raced, rescan and retry.
-  No counter ref required for correctness.
-
-**Content-addressed naming:**
-
-- `IdStrategy::ContentAddressed(bytes)` → hash using git's object hash
-  algorithm via `git2`.
-
-**Caller-provided naming:**
-
-- Pass through directly; validate with `git check-ref-format` rules.
-
-**Attestation:**
-
-- Any `create` or `update` commit can be GPG/SSH signed.
-  Expose a `sign: bool` option on `create`/`update`; delegate to `git2`'s signing support.
-
-**Dependencies:** `git2`, `clap` (already in workspace), nothing else.
-
-### CLI
+#### CLI
 
 ```text
 git ledger create <ref-prefix> [<id>] [--sequential | --content-hash] --set key=value ...
@@ -185,19 +166,11 @@ git ledger update <ref> --set key=value ... --delete key ...
 git ledger list   <ref-prefix>
 ```
 
-History is available via `git log <ref>` directly.
-
-`--sequential` is the default when no `<id>` is given.
-`<id>` is caller-provided.
-`--content-hash` hashes stdin.
-
----
-
-## Phase 3 — git-chain (new crate)
+### Phase 3 — git-chain ✓
 
 **Crate:** `crates/git-chain/` **Type:** library + CLI (`git-chain`, invoked as `git chain`) **Version:** 0.1.0
 
-### Model
+#### Model
 
 A chain is a ref where each commit is an event.
 The commit chain is the ordering.
@@ -215,7 +188,7 @@ The consumer decides what goes in the tree vs. the commit message.
 Entries are never edited.
 Corrections are new appends.
 
-### Public API
+#### Public API
 
 ```rust
 pub trait Chain {
@@ -241,62 +214,30 @@ pub struct ChainEntry {
 }
 ```
 
-### Implementation notes
-
-**Append:** create a commit whose first parent is the current ref tip.
-The caller provides the tree OID.
-If `parent` is set, it becomes the second parent.
-
-**Walk (full chain):** follow first-parent links from tip to root.
-Each commit yields one `ChainEntry`.
-Returns reverse-chronological order.
-
-**Walk (threaded):** starting from `thread` root, find all commits in the chain whose second parent is that commit.
-Then recursively find replies to those.
-Returns the full thread tree rooted at that commit.
-
-**Concurrency:** two concurrent appenders diverge the ref.
-On next write, a merge commit with two first-parents re-converges.
-This is correct — the chain is a DAG event log.
-DAG order with commit timestamps is sufficient for reconstruction.
-
-**Attestation:** same signing option as ledger.
-
-**Dependencies:** `git2`, `clap` (already in workspace), nothing else.
-
-### CLI
+#### CLI
 
 ```text
 git chain append <ref> [-m <message>] [--parent <commit>] [--payload <path>]...
 git chain walk   <ref> [--thread <commit>]
 ```
 
-`-m` sets the commit message.
-`--payload` adds a file or directory to the commit's tree (repeatable).
-`--parent` sets the second parent.
+### Phase 4 — Workspace Wiring ✓
+
+1. `git-ledger` and `git-chain` added to `Cargo.toml` workspace members.
+2. `git2` and `tempfile` versions shared via workspace `[dependencies]`.
+3. CI matrix entries added for all crates.
+4. Integration test helpers available per-crate.
 
 ---
 
-## Phase 4 — Workspace Wiring
+## Sequencing (completed)
 
-1. Add `git-ledger` and `git-chain` to `Cargo.toml` workspace members.
-2. Share `git2` and `tempfile` versions via workspace `[dependencies]`.
-3. Add CI matrix entries for new crates.
-4. Add integration test helpers shared across crates (or inline per-crate).
-
----
-
-## Sequencing
-
-| Phase | Deliverable | Depends on |
-|-------|-------------|------------|
-| 1 | `git-metadata` relation ops + CLI | — |
-| 2 | `git-ledger` library | Phase 4 (workspace) |
-| 3 | `git-chain` library | Phase 4 (workspace) |
-| 4 | Workspace wiring | — (can run in parallel with 1) |
-
-Phases 1 and 4 can start immediately.
-Phases 2 and 3 are independent of each other and can be implemented in parallel after 4 is done.
+| Phase | Deliverable | Status |
+|-------|-------------|--------|
+| 1 | `git-metadata` relation ops + CLI | ✓ Done |
+| 2 | `git-ledger` library + CLI | ✓ Done |
+| 3 | `git-chain` library + CLI | ✓ Done |
+| 4 | Workspace wiring | ✓ Done |
 
 ---
 

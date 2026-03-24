@@ -23,3 +23,5 @@ This project adds various abstractions for storing metadata on objects, storing 
 | Crate | Description |
 | --- | --- |
 | [`git-metadata`](crates/git-metadata) | Annotations on any Git object. |
+| [`git-ledger`](crates/git-ledger) | Versioned records stored as refs. |
+| [`git-chain`](crates/git-chain) | Append-only event chains stored as commit history. |
