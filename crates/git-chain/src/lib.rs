@@ -161,12 +161,14 @@ impl ThreadWalk for Repository {
         all_commits: &[git2::Commit<'_>],
         root: Oid,
     ) -> Result<Vec<ChainEntry>, Error> {
+        let commit_map: std::collections::HashMap<Oid, &git2::Commit<'_>> =
+            all_commits.iter().map(|c| (c.id(), c)).collect();
         let mut result = Vec::new();
         let mut stack = vec![root];
 
         while let Some(current) = stack.pop() {
-            // Include this commit.
-            if let Ok(commit) = self.find_commit(current) {
+            // Include this commit only if it is part of the chain.
+            if let Some(commit) = commit_map.get(&current) {
                 result.push(ChainEntry {
                     commit: commit.id(),
                     message: commit
@@ -178,7 +180,7 @@ impl ThreadWalk for Repository {
                 });
             } else {
                 return Err(Error::from_str(&format!(
-                    "thread root commit not found: {}",
+                    "thread root commit not found in chain: {}",
                     current
                 )));
             }
