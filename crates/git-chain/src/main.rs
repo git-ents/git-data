@@ -2,8 +2,8 @@ mod cli;
 
 use clap::Parser;
 use cli::{Cli, Command};
-use git2::{Oid, Repository};
 use git_chain::Chain;
+use git2::{Oid, Repository};
 use std::path::Path;
 use std::process;
 
@@ -48,6 +48,14 @@ fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
                         .and_then(|n| n.to_str())
                         .ok_or("invalid payload path")?
                         .to_string();
+                    if entries.iter().any(|(n, _)| n == &name) {
+                        return Err(format!(
+                            "duplicate payload filename '{}': {}",
+                            name,
+                            path.display()
+                        )
+                        .into());
+                    }
                     let content = std::fs::read(path)?;
                     entries.push((name, content));
                 }

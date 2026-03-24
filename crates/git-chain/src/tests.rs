@@ -121,3 +121,37 @@ fn walk_preserves_tree_oids() {
     assert_eq!(entries[0].tree, t2);
     assert_eq!(entries[1].tree, t1);
 }
+
+#[test]
+fn walk_messages_have_no_trailing_newline() {
+    let (_dir, repo) = init_repo();
+    let t1 = make_payload(&repo, "event 1");
+    repo.append(REF, "hello", t1, None).unwrap();
+
+    let entries = repo.walk(REF, None).unwrap();
+    assert_eq!(entries[0].message, "hello");
+    assert!(!entries[0].message.ends_with('\n'));
+}
+
+#[test]
+fn walk_thread_invalid_oid_returns_error() {
+    let (_dir, repo) = init_repo();
+    let t1 = make_payload(&repo, "event 1");
+    repo.append(REF, "first", t1, None).unwrap();
+
+    // Use a made-up OID that doesn't correspond to any commit
+    let fake_oid = Oid::from_str("0000000000000000000000000000000000000000").unwrap();
+    let result = repo.walk(REF, Some(fake_oid));
+    assert!(result.is_err());
+}
+
+#[test]
+fn append_message_matches_walk_message() {
+    let (_dir, repo) = init_repo();
+    let t1 = make_payload(&repo, "event 1");
+
+    let appended = repo.append(REF, "hello world", t1, None).unwrap();
+    let walked = repo.walk(REF, None).unwrap();
+
+    assert_eq!(appended.message, walked[0].message);
+}

@@ -99,7 +99,11 @@ impl Chain for Repository {
                 while let Some(commit) = current {
                     entries.push(ChainEntry {
                         commit: commit.id(),
-                        message: commit.message().unwrap_or("").to_string(),
+                        message: commit
+                            .message()
+                            .unwrap_or("")
+                            .trim_end_matches('\n')
+                            .to_string(),
                         tree: commit.tree_id(),
                     });
                     current = commit.parent(0).ok();
@@ -158,26 +162,38 @@ impl ThreadWalk for Repository {
         root: Oid,
     ) -> Result<Vec<ChainEntry>, Error> {
         let mut result = Vec::new();
+        let mut stack = vec![root];
 
-        // Include the root commit itself.
-        if let Ok(root_commit) = self.find_commit(root) {
-            result.push(ChainEntry {
-                commit: root_commit.id(),
-                message: root_commit.message().unwrap_or("").to_string(),
-                tree: root_commit.tree_id(),
-            });
-        }
+        while let Some(current) = stack.pop() {
+            // Include this commit.
+            if let Ok(commit) = self.find_commit(current) {
+                result.push(ChainEntry {
+                    commit: commit.id(),
+                    message: commit
+                        .message()
+                        .unwrap_or("")
+                        .trim_end_matches('\n')
+                        .to_string(),
+                    tree: commit.tree_id(),
+                });
+            } else {
+                return Err(Error::from_str(&format!(
+                    "thread root commit not found: {}",
+                    current
+                )));
+            }
 
-        // Find direct replies: commits whose second parent == root.
-        let replies: Vec<&git2::Commit<'_>> = all_commits
-            .iter()
-            .filter(|c| c.parent_id(1).ok() == Some(root))
-            .collect();
+            // Find direct replies: commits whose second parent == current.
+            let replies: Vec<Oid> = all_commits
+                .iter()
+                .filter(|c| c.parent_id(1).ok() == Some(current))
+                .map(|c| c.id())
+                .collect();
 
-        for reply in replies {
-            // Recursively collect sub-threads.
-            let sub = self.collect_thread(all_commits, reply.id())?;
-            result.extend(sub);
+            // Push in reverse so we process them in original order.
+            for oid in replies.into_iter().rev() {
+                stack.push(oid);
+            }
         }
 
         Ok(result)
