@@ -127,10 +127,10 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache: true
-      - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@main
       - name: Install cargo-semver-checks
-        run: cargo binstall cargo-semver-checks --no-confirm
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-semver-checks
       - name: Run semver checks for published crates
         run: |
           crate_names=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[].name')
