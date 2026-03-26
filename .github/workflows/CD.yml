@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       should-publish: ${{ github.event_name == 'workflow_dispatch' || steps.check.outputs.match == 'true' }}
+      crate-name: ${{ steps.check.outputs.crate-name }}
     steps:
       - name: Match semver tag
         id: check
@@ -23,6 +24,7 @@ jobs:
           TAG="${{ github.event.release.tag_name }}"
           if [[ "$TAG" =~ ^(git-metadata|git-ledger|git-chain)-v[0-9]+\.[0-9]+\.[0-9]+(-.*)?$ ]]; then
             echo "match=true" >> "$GITHUB_OUTPUT"
+            echo "crate-name=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
           else
             echo "match=false" >> "$GITHUB_OUTPUT"
           fi
@@ -45,8 +47,14 @@ jobs:
         with:
           cache: true
           toolchain: stable
-      - name: Package crates
-        run: cargo package --workspace
+      - name: Package crate
+        run: |
+          CRATE="${{ needs.check-tag.outputs.crate-name }}"
+          if [ -n "$CRATE" ]; then
+            cargo package -p "$CRATE"
+          else
+            cargo package --workspace
+          fi
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v2
         with:
@@ -56,8 +64,14 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           IS_PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
-          if [ "$IS_PRERELEASE" = "true" ]; then
-            cargo publish --workspace --dry-run
+          CRATE="${{ needs.check-tag.outputs.crate-name }}"
+          if [ -n "$CRATE" ]; then
+            PKG_FLAG="-p $CRATE"
           else
-            cargo publish --workspace --token "$CARGO_REGISTRY_TOKEN"
+            PKG_FLAG="--workspace"
+          fi
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            cargo publish $PKG_FLAG --dry-run
+          else
+            cargo publish $PKG_FLAG --token "$CARGO_REGISTRY_TOKEN"
           fi
