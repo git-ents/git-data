@@ -207,7 +207,7 @@ dependencies = [
 
 [[package]]
 name = "git-chain"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "clap",
  "clap_mangen",
@@ -229,7 +229,7 @@ dependencies = [
 
 [[package]]
 name = "git-ledger"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "clap",
  "clap_mangen",
@@ -239,7 +239,7 @@ dependencies = [
 
 [[package]]
 name = "git-metadata"
-version = "0.2.1"
+version = "0.3.0-rc.1"
 dependencies = [
  "clap",
  "clap_mangen",
