@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0-alpha.2](https://github.com/git-ents/git-data/compare/git-ledger-v0.1.0-alpha.1...git-ledger-v0.1.0-alpha.2) (2026-03-27)
+
+
+### Features
+
+* Add IdStrategy::CommitOid for commit-OID-keyed entity refs ([31c8dc3](https://github.com/git-ents/git-data/commit/31c8dc3ff376f0a88a78fdf444053c95ae0336da)), closes [#6](https://github.com/git-ents/git-data/issues/6)
+
 ## 0.1.0-alpha.1 (2026-03-26)
 
 

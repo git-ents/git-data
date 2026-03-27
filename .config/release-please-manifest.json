@@ -1,5 +1,5 @@
 {
   "crates/git-metadata": "0.3.0-rc.1",
-  "crates/git-ledger": "0.1.0-alpha.1",
+  "crates/git-ledger": "0.1.0-alpha.2",
   "crates/git-chain": "0.1.0-alpha.1"
 }
