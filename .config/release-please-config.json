@@ -14,7 +14,7 @@
       "prerelease": true
     },
     "crates/git-ledger": {
-      "release-as": "0.1.0-alpha.2",
+      "release-as": "0.1.0-alpha.3",
       "prerelease": true
     },
     "crates/git-chain": {
