@@ -26,6 +26,8 @@ pub enum IdStrategy<'a> {
     ContentAddressed(&'a [u8]),
     /// Use the caller's string directly.
     CallerProvided(&'a str),
+    /// Name the record's ref after the OID of the commit that `create` writes.
+    CommitOid,
 }
 
 /// A mutation to apply to a record's fields.
@@ -215,6 +217,28 @@ impl Ledger for Repository {
         fields: &[(&str, &[u8])],
         message: &str,
     ) -> Result<LedgerEntry, Error> {
+        let tree_oid = build_fields_tree(self, fields)?;
+        let tree = self.find_tree(tree_oid)?;
+        let sig = self.signature()?;
+
+        if let IdStrategy::CommitOid = strategy {
+            // Write the commit first (no ref), then name the ref after its OID.
+            let commit_oid = self.commit(None, &sig, &sig, message, &tree, &[])?;
+            let ref_name = if ref_prefix.ends_with('/') {
+                format!("{}{}", ref_prefix, commit_oid)
+            } else {
+                format!("{}/{}", ref_prefix, commit_oid)
+            };
+            self.reference(&ref_name, commit_oid, false, message)?;
+            let fields = read_fields(self, &tree, "")?;
+            return Ok(LedgerEntry {
+                id: commit_oid.to_string(),
+                ref_: ref_name,
+                commit: commit_oid,
+                fields,
+            });
+        }
+
         let id = match strategy {
             IdStrategy::Sequential => {
                 let next = next_sequential_id(self, ref_prefix)?;
@@ -225,6 +249,7 @@ impl Ledger for Repository {
                 oid.to_string()
             }
             IdStrategy::CallerProvided(s) => s.to_string(),
+            IdStrategy::CommitOid => unreachable!(),
         };
 
         let ref_name = if ref_prefix.ends_with('/') {
@@ -240,10 +265,6 @@ impl Ledger for Repository {
                 ref_name
             )));
         }
-
-        let tree_oid = build_fields_tree(self, fields)?;
-        let tree = self.find_tree(tree_oid)?;
-        let sig = self.signature()?;
 
         let commit_oid = self.commit(
             Some(&ref_name),

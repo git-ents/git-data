@@ -324,3 +324,26 @@ fn delete_nested_field_removes_empty_parent() {
     // Both the nested field and its now-empty parent should be gone
     assert!(updated.fields.is_empty());
 }
+
+#[test]
+fn create_commit_oid() {
+    let (_dir, repo) = init_repo();
+
+    let entry = repo
+        .create(
+            PREFIX,
+            &IdStrategy::CommitOid,
+            &[("title", b"hello"), ("status", b"open")],
+            "create record",
+        )
+        .unwrap();
+
+    // ID should be the commit OID (40 hex chars)
+    assert_eq!(entry.id.len(), 40);
+    assert_eq!(entry.id, entry.commit.to_string());
+    // Ref should contain the commit OID
+    assert_eq!(entry.ref_, format!("{}/{}", PREFIX, entry.id));
+    // Should be readable back
+    let read = repo.read(&entry.ref_).unwrap();
+    assert_eq!(read.fields, entry.fields);
+}
