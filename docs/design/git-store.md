@@ -1,6 +1,6 @@
-# git-db — Plumbing for Non-Text Porcelain
+# git-store — Plumbing for Non-Text Porcelain
 
-**Project:** `git-db` **Organization:** `git-ainur` **Status:** Draft — design document **Author:** Joey Carpinelli **Date:** April 2026 **References:**
+**Project:** `git-store` **Organization:** `git-ainur` **Status:** Draft — design document **Author:** Joey Carpinelli **Date:** April 2026 **References:**
 
 - [ea-design-doc.md](https://github.com/git-ents/git-data/blob/feat/db/docs/design/ea-design-doc.md) — Original ea design (historical)
 - [ea-revised-design-doc.md](https://github.com/git-ents/git-data/blob/feat/db/docs/design/ea-revised-design-doc.md) — Abstract kernel specification
@@ -19,21 +19,21 @@ These ad-hoc implementations are fragile, incompatible, and expensive to build.
 The gap is between `git hash-object` / `git update-ref` (too low-level) and `git add` / `git commit` (assumes text files).
 There is no plumbing layer for structured data.
 
-`git-db` is that layer.
+`git-store` is that layer.
 
 ---
 
-## 1. What git-db Is
+## 1. What git-store Is
 
-A Rust library (`git-db`) and a set of CLI plumbing commands (`git db`) for transactional, typed, structured data operations over a standard git repository.
+A Rust library (`git-store`) and a set of CLI plumbing commands (`git db`) for transactional, typed, structured data operations over a standard git repository.
 No new file formats.
 No new directories.
 No new protocols.
 Everything is git objects and refs.
 
-`git-db` is to structured data porcelains what `git hash-object` / `git mktree` / `git update-ref` are to text porcelains: the plumbing that higher-level tools build on.
+`git-store` is to structured data porcelains what `git hash-object` / `git mktree` / `git update-ref` are to text porcelains: the plumbing that higher-level tools build on.
 
-A database created by `git-db` coexists in the same `.git` as source code.
+A database created by `git-store` coexists in the same `.git` as source code.
 Source lives in `refs/heads/`.
 Structured data lives in `refs/db/<n>`.
 They share the ODB, packfiles, and transport.
@@ -61,7 +61,7 @@ pub trait ContentAddressable {
 }
 ```
 
-**Laws (enforced by property tests in `git-db`):**
+**Laws (enforced by property tests in `git-store`):**
 
 1. **Determinism.** `store(v)` always returns the same hash for the same value.
 2. **Round-trip.** `retrieve(store(v))` returns `Some(v')` where `v' == v`.
@@ -84,7 +84,7 @@ pub trait Pointer {
     fn cas(
         &self,
         expected: Option<Self::Hash>,
-        new: Self::Hash,
+        new: Option<Self::Hash>,
     ) -> Result<(), CasFailure>;
 }
 ```
@@ -106,7 +106,7 @@ Fallback to `git update-ref --stdin` for reftable or other backends gix doesn't 
 
 Any `ContentAddressable` store can store the complete serialized state of any other `ContentAddressable` store as a single value.
 This is structural — it falls out of `Value` being general enough to contain arbitrary bytes.
-The property guarantees interoperability: a git-db database can embed another git-db database, and backend bootstrapping is always available.
+The property guarantees interoperability: a git-store database can embed another git-store database, and backend bootstrapping is always available.
 
 ---
 
@@ -199,7 +199,7 @@ A `.db-type` marker blob at each typed subtree root tells the merge dispatcher w
 
 ## 4. Type Definitions via Facet
 
-Rust consumers define git-db types using the [facet](https://github.com/facet-rs/facet) reflection library.
+Rust consumers define git-store types using the [facet](https://github.com/facet-rs/facet) reflection library.
 The Rust type definition is the authoritative source for serialization layout, merge strategy, and type registration.
 No separate schema files.
 No manual registry entries.
@@ -418,7 +418,7 @@ Conflicts at leaves propagate upward as conflict records.
 
 ## 9. Query Layer
 
-git-db's tree structure enables a useful query layer without SQL or a separate query engine.
+git-store's tree structure enables a useful query layer without SQL or a separate query engine.
 
 ### 9.1 Structural Properties
 
@@ -587,7 +587,7 @@ git db annotate <n> <path> <annotation>
 ## 11. Usage Example: forge
 
 forge is a local-first issue and code-review tracker stored entirely in git.
-It is the primary reference porcelain for git-db and drives all API design decisions.
+It is the primary reference porcelain for git-store and drives all API design decisions.
 
 ### 11.1 State Tree Layout
 
@@ -642,7 +642,7 @@ refs/db/forge
         └── comments-by-object/     → object OID → space-separated thread UUIDs
 ```
 
-**GC note:** Any OID stored as blob content in the transaction tree is reachable from `refs/db/forge` and GC-safe. forge's prior `objects/` workaround subtree is unnecessary under git-db and must be removed when forge is migrated.
+**GC note:** Any OID stored as blob content in the transaction tree is reachable from `refs/db/forge` and GC-safe. forge's prior `objects/` workaround subtree is unnecessary under git-store and must be removed when forge is migrated.
 
 **Index maintenance:** All mutations to `issues/`, `reviews/`, and `comments/` update the corresponding `index/` entries in the same transaction.
 There is no deferred rebuild.
@@ -738,9 +738,9 @@ fn add_comment(
 
 ---
 
-## 12. What git-db Replaces
+## 12. What git-store Replaces
 
-| Current approach | Problem | git-db equivalent |
+| Current approach | Problem | git-store equivalent |
 |---|---|---|
 | git-bug, git-appraise | Ad-hoc ref conventions, custom merge, can't share infrastructure | Porcelain on `git db` |
 | YAML/JSON config in git | Text merge on structured data, broken merges | Ledger with key-level merge |
@@ -753,7 +753,7 @@ fn add_comment(
 
 ---
 
-## 13. What git-db Does Not Do
+## 13. What git-store Does Not Do
 
 - **No query language enforcement.**
   The query layer (§9) is additive.
@@ -766,12 +766,12 @@ fn add_comment(
   There is no checkout.
   The state tree exists only as git objects.
 - **No text diff/merge.**
-  The text porcelain still handles source code. git-db handles structured data.
+  The text porcelain still handles source code. git-store handles structured data.
 - **No new protocols.**
   Sync is `git push` / `git fetch`.
   Auth is whatever your git remote uses.
 - **No hosted service.**
-  git-db is plumbing.
+  git-store is plumbing.
   Hosted services are porcelain built on top.
 - **No external database.**
   No SQLite, no external process.
@@ -782,30 +782,30 @@ fn add_comment(
 ## 14. Relationship to Existing Work
 
 **git plumbing.**
-`git-db` composes `hash-object`, `mktree`, `write-tree`, `update-ref` into higher-level operations.
+`git-store` composes `hash-object`, `mktree`, `write-tree`, `update-ref` into higher-level operations.
 It does not replace or modify any existing git behavior.
 
 **Irmin.**
 Closest prior art.
 OCaml library for mergeable, branchable, content-addressed stores.
-`git-db` differs in being git-native, Rust, CLI-accessible, and reduced to two primitives.
+`git-store` differs in being git-native, Rust, CLI-accessible, and reduced to two primitives.
 
 **Noms / Dolt.**
 Content-addressed versioned databases with prolly trees and SQL.
-`git-db` operates at a lower layer — it provides primitives, without prescribing a query interface or storage format.
+`git-store` operates at a lower layer — it provides primitives, without prescribing a query interface or storage format.
 
 **facet.**
-git-db uses facet for Rust type reflection.
+git-store uses facet for Rust type reflection.
 The `GitDbType` derive macro produces serialization, merge strategy selection, and type registry entries from the facet `SHAPE`.
 Shell consumers use the string registry written at `db init`.
 
 **jj.**
-jj could be implemented as a porcelain on `git-db` (operation log as a chain, change-id map as a ledger, branch pointers as ledger entries or real git refs).
+jj could be implemented as a porcelain on `git-store` (operation log as a chain, change-id map as a ledger, branch pointers as ledger entries or real git refs).
 Whether performance characteristics would be acceptable is an open question.
 
 **Local-first / CRDTs.**
-`git-db`'s chain is a G-Set and its ledger with LWW per key is a conflict-free OR-Map.
-A local-first framework could use `git-db` as its persistence and sync layer.
+`git-store`'s chain is a G-Set and its ledger with LWW per key is a conflict-free OR-Map.
+A local-first framework could use `git-store` as its persistence and sync layer.
 
 ---
 
@@ -831,7 +831,7 @@ Rebuild on OID change.
 No external database required.
 
 These are the performance characteristics of a small-to-medium structured data store.
-`git-db` is not competing with SQLite on throughput.
+`git-store` is not competing with SQLite on throughput.
 It is competing with "ad-hoc YAML in a git repo" on correctness.
 
 ---
@@ -892,7 +892,7 @@ OID-keyed result caching.
 
 Crate docs.
 Man pages for CLI commands.
-Tutorial: "Build a porcelain on git-db."
+Tutorial: "Build a porcelain on git-store."
 Specification: tree layout, type markers, merge contracts, query algebra.
 
 ---
