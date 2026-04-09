@@ -636,9 +636,9 @@ refs/db/forge/issue/<oid>          → commit chain for one issue
                                            ├── body         → blob (optional)
                                            ├── display-id   → blob: e.g. "GH#42" (set by sync adapter)
                                            ├── labels/      → ledger (name → empty blob; presence = set membership)
-                                           └── assignees/   → ledger (contributor UUID → empty blob)
+                                           └── assignees/   → ledger (contributor OID → empty blob)
 
-refs/db/forge/review/<uuid>        → commit chain for one review
+refs/db/forge/review/<oid>         → commit chain for one review
                                        └── tree
                                            ├── .db-type     → blob: "review"
                                            ├── title        → blob
@@ -651,19 +651,18 @@ refs/db/forge/review/<uuid>        → commit chain for one review
                                            ├── labels/      → ledger
                                            ├── assignees/   → ledger
                                            └── approvals/   → ledger
-                                               └── <commit-oid>/<contributor-uuid> → empty blob
+                                               └── <commit-oid>/<contributor-oid> → empty blob
 
-refs/db/forge/comment/<thread-uuid> → commit chain (one commit per comment)
+refs/db/forge/comment/<oid>         → commit chain (one commit per comment)
                                         └── tree (latest entry)
                                             ├── .db-type   → blob: "comment"
                                             ├── body       → blob
                                             ├── anchor     → blob: "<oid>[:<start>-<end>]"
-                                            ├── id         → blob: UUID v7
                                             ├── resolved   → blob: "true" (absent = unresolved)
-                                            ├── reply-to   → blob: parent comment UUID (absent = top-level)
-                                            └── replaces   → blob: prior comment UUID (absent = original)
+                                            ├── reply-to   → blob: parent comment OID (absent = top-level)
+                                            └── replaces   → blob: prior comment OID (absent = original)
 
-refs/db/forge/contributor/<uuid>    → commit chain for one contributor
+refs/db/forge/contributor/<oid>     → commit chain for one contributor
                                         └── tree
                                             ├── handle     → blob
                                             ├── names/     → ledger
@@ -679,9 +678,9 @@ refs/db/forge/config                → commit chain for config
 refs/db/forge/index/issues-by-display-id   → commit (derived)
                                                └── tree: display-id string → issue OID
 refs/db/forge/index/reviews-by-display-id  → commit (derived)
-                                               └── tree: display-id string → review UUID
+                                               └── tree: display-id string → review OID
 refs/db/forge/index/comments-by-object     → commit (derived)
-                                               └── tree: object OID → space-separated thread UUIDs
+                                               └── tree: object OID → space-separated thread OIDs
 
 refs/db/forge/.db                   → database metadata
 ```
@@ -718,10 +717,9 @@ struct ForgeIssue {
 struct ForgeComment {
     body: String,
     anchor: String,
-    id: Uuid,
     resolved: bool,
-    reply_to: Option<Uuid>,
-    replaces: Option<Uuid>,
+    reply_to: Option<Oid>,
+    replaces: Option<Oid>,
 }
 ```
 
@@ -747,39 +745,37 @@ fn create_issue(db: &Db, title: &str, body: Option<&str>) -> Result<String> {
 
 fn add_comment(
     db: &Db,
-    thread_uuid: &str,
+    thread_oid: &str,
     anchor: &str,
     body: &str,
     reply_to: Option<&str>,
-) -> Result<String> {
-    let comment_id = uuid::Uuid::now_v7().to_string();
+) -> Result<Oid> {
     let object_oid = anchor.split(':').next().unwrap();
 
     let mut entry = Value::tree();
     entry.insert("body", Value::from(body));
     entry.insert("anchor", Value::from(anchor));
-    entry.insert("id", Value::from(comment_id.as_str()));
     if let Some(r) = reply_to {
         entry.insert("reply-to", Value::from(r));
     }
 
     let mut tx = db.transaction()?;
-    // Entity ref: refs/db/forge/comment/<thread-uuid>
-    tx.append(&["comment", thread_uuid], entry)?;
+    // Entity ref: refs/db/forge/comment/<oid>
+    // Birth commit OID of the chain is the thread identity.
+    tx.append(&["comment", thread_oid], entry)?;
 
     // Derived index ref: updated in same atomic transaction.
     let current = tx.get(&["index", "comments-by-object", object_oid])?
         .map(|v| v.to_string())
         .unwrap_or_default();
     let updated = if current.is_empty() {
-        thread_uuid.to_owned()
+        thread_oid.to_owned()
     } else {
-        format!("{current} {thread_uuid}")
+        format!("{current} {thread_oid}")
     };
     tx.put(&["index", "comments-by-object", object_oid], Value::from(updated.as_str()))?;
 
-    tx.commit(meta("add comment"))?;
-    Ok(comment_id)
+    tx.commit(meta("add comment"))
 }
 ```
 
