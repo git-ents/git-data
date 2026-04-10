@@ -6,11 +6,12 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
-git2 = { workspace = true }
-git-chain = { workspace = true }
-git-ledger = { workspace = true }
-git-metadata = { workspace = true }
+gix = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true
