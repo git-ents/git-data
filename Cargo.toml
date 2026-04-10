@@ -4,6 +4,7 @@ members = [
     "crates/git-metadata",
     "crates/git-ledger",
     "crates/git-chain",
+    "crates/git-store",
 ]
 
 [workspace.package]
@@ -23,10 +24,12 @@ pedantic = "warn"
 clap = { version = "4.5.60", features = ["derive"] }
 clap_mangen = "0.2.31"
 criterion = { version = "0.5", features = ["html_reports"] }
-git2 = "0.20.4"
-globset = "0.4.18"
+thiserror = { version = "2.0.18" }
+git2 = { version = "0.20.4" }
+globset = { version = "0.4.18" }
+tempfile = { version = "3" }
 git2_credentials = { version = "0.15.0", features = ["ui4dialoguer"] }
 git-metadata = { path = "crates/git-metadata" }
 git-ledger = { path = "crates/git-ledger" }
 git-chain = { path = "crates/git-chain" }
-tempfile = "3"
+git-store = { path = "crates/git-store" }
